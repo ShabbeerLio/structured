@@ -1,59 +1,64 @@
+
 import React, { useEffect, useState } from "react";
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding)
+    .replace(/-/g, "+")
+    .replace(/_/g, "/");
+
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
 
 const App = () => {
   const [meals, setMeals] = useState([]);
 
   useEffect(() => {
-    // Request permission for notifications
-    Notification.requestPermission();
+    const today = new Date().toLocaleDateString("en-US", { weekday: "long" });
 
-    // Get today's meals from backend
     const fetchMeals = async () => {
-      const today = new Date().toLocaleString("en-US", { weekday: "long" });
-      try {
-        const response = await fetch(`http://localhost:8000/api/meals/${today}`);
-        const data = await response.json();
-        setMeals(data);
-      } catch (error) {
-        console.error("Failed to fetch meals", error);
-      }
+      const res = await fetch(`https://structured-backend.onrender.com/api/meals/${today}`);
+      const data = await res.json();
+      setMeals(data);
     };
 
-    fetchMeals();
+    const setupPush = async () => {
+      const swReg = await navigator.serviceWorker.register("/sw.js");
+      const subscription = await swReg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array("BFbkQFoy4Zuc7yT5SUP2x5QOfE1mfrjgykdJQ3qsaA4LHWUPl9RXzxMG9Ps83urBlRSl9234mzgbpy_THWjpsHQ")
+      });
 
-    // Check every minute if it's time to notify
-    const checkTime = () => {
-      const now = new Date();
-      const currentTime = now.toTimeString().slice(0, 5);
-
-      meals.forEach((meal) => {
-        const [hh, mm] = meal.time.split(":");
-        const mealTime = new Date(now);
-        mealTime.setHours(hh, mm - 10, 0); // 10 minutes before meal time
-
-        const notifyTime = mealTime.toTimeString().slice(0, 5);
-        if (currentTime === notifyTime) {
-          new Notification(`Upcoming: ${meal.name}`, {
-            body: meal.instructions,
-          });
-        }
+      await fetch("https://structured-backend.onrender.com/api/push/subscribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(subscription)
       });
     };
 
-    const interval = setInterval(checkTime, 60000);
-    return () => clearInterval(interval);
-  }, [meals]);
+    Notification.requestPermission().then((perm) => {
+      if (perm === "granted") setupPush();
+    });
+
+    fetchMeals();
+  }, []);
 
   return (
-    <div style={{ padding: "20px", fontFamily: "Arial" }}>
+    <div style={{ padding: 20 }}>
       <h2>Meal Reminder App</h2>
       <p>Notifications will be sent 10 minutes before each meal.</p>
 
       <h3>Today's Meals</h3>
       <ul>
-        {meals.map((meal, index) => (
-          <li key={index}>
-            <strong>{meal.time}</strong> - {meal.name}: {meal.instructions}
+        {meals.map((m, i) => (
+          <li key={i}>
+            <strong>{m.time}</strong>: {m.name} - {m.instructions}
           </li>
         ))}
       </ul>
